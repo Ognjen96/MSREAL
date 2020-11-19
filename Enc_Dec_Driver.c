@@ -4,7 +4,11 @@
 #include <linux/types.h>
 #include <linux/device.h>
 #include <linux/cdev.h>
-
+#include <linux/kernel.h>
+#include <linux/string.h>
+#include <linux/errno.h>
+#include <linux/kdev_t.h>
+#include <linux/uaccess.h>
 
 MODULE_LICENSE("Dual BSD/GPL");
 
@@ -13,7 +17,13 @@ static struct class *my_class;
 static struct device *my_device;
 static struct cdev *my_cdev;
 
+#define BUFF_SIZE 20
 #define number_of_minors 3
+int storage[10];
+int pos = 0;
+int endRead = 0;
+
+
 
 int ED_open(struct inode *pinode, struct file *pfile);
 int ED_close(struct inode *pinode, struct file *pfile);
@@ -44,20 +54,70 @@ int ED_close(struct inode *pinode, struct file *pfile)
 
 ssize_t ED_read(struct file *pfile, char __user *buffer, size_t length, loff_t *offset) 
 {
-		printk(KERN_INFO "Succesfully read from file\n");
-		return 0;
-}
+		int ret;
+		char buff[BUFF_SIZE];
+		long int len;
+		if (endRead){
+			endRead = 0;
+			pos = 0;
+			printk(KERN_INFO "Succesfully read from file\n");
+			return 0;
+		}
+		
+		len = scnprintf(buff, BUFF_SIZE, "%d", storage[pos]);
+		ret = copy_to_user(buffer, buff, len);
+		if (ret)
+			return -EFAULT;
+		pos++;
+		if (pos == 10) {
+			endRead = 1;
+		}
+		return len;
+	}
 
-ssize_t ED_write(struct file *pfile, const char __user *buffer, size_t length, loff_t *offset) 
+
+ssize_t ED_write(struct file *pfile, const char __user *buffer, size_t length, loff_t *offset)
 {
-		printk(KERN_INFO "Succesfully wrote into file\n");
+		char buff[BUFF_SIZE];
+		int position, value;
+		int ret;
+
+		ret = copy_from_user(buff, buffer, length);
+		if(ret)
+			return -EFAULT;
+		buff[length-1] = '\0';
+
+		ret = sscanf(buff, "%d,%d",&value,&position);
+
+		if(ret==2)
+		{
+			if(position >=0 && position <=9)
+			{
+				storage[position] = value;
+				printk(KERN_INFO "Succesfully wrote value %d in position %d \n", value, position);
+			}
+			else
+			{
+				printk(KERN_WARNING "Position should be between 0 and 9\n");
+			}
+		}
+		else
+		{
+			printk(KERN_WARNING "Wrong command format\nExpected: n, m\ntn-position\n\tm-value\n");
+		}
+
 		return length;
-}
+}  
+
 
 static int __init ED_init(void)
 {
-
    int ret = 0;
+   int i = 0;
+   for (i=0; i<10; i++)
+	storage[i];
+
+
    ret = alloc_chrdev_region(&my_dev_id, 0, number_of_minors, "storage");
    if (ret){
       printk(KERN_ERR "failed to register char device\n");
